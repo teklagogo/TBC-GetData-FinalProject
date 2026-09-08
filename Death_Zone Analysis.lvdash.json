@@ -1,0 +1,3557 @@
+{
+  "datasets": [
+    {
+      "name": "ds_peak_risk",
+      "displayName": "რისკი მწვერვალების მიხედვით",
+      "queryLines": [
+        "WITH PeaksWithHiredStaff AS (\n",
+        "    SELECT Mb.PeakId\n",
+        "    FROM getdata.calculated.CalcMembers AS Mb\n",
+        "    WHERE Mb.IsHiredStaff\n",
+        "    GROUP BY Mb.PeakId\n",
+        "    HAVING COUNT(*) >= 100\n",
+        ")\n",
+        "SELECT\n",
+        "    Mb.PeakId,\n",
+        "    Mb.PeakName,\n",
+        "    Mb.ExpeditionYear,\n",
+        "    Mb.Decade,\n",
+        "    Mb.Era,\n",
+        "    Mb.StaffType,\n",
+        "    CAST(Mb.ReachedSummit AS INT) AS SummitFlag,\n",
+        "    CAST(Mb.Died AS INT) AS DeathFlag,\n",
+        "    CAST(Mb.ReachedSummit AS INT) * 100 AS SuccessPct,\n",
+        "    CAST(Mb.Died AS INT) * 100 AS DeathPct,\n",
+        "    Mb.ReachedSummit,\n",
+        "    Mb.Died\n",
+        "FROM getdata.calculated.CalcMembers AS Mb\n",
+        "INNER JOIN PeaksWithHiredStaff AS Ep\n",
+        "    ON Mb.PeakId = Ep.PeakId"
+      ]
+    },
+    {
+      "name": "ds_summits_running",
+      "displayName": "ასვლები — წლიური და დაგროვებითი",
+      "queryLines": [
+        "--  დაგროვებითი ჯამი მწვერვალის მიხედვითაა დაყოფილი (PARTITION BY),\n",
+        "--  არა მთელ არქივზე. მიზეზი: ფანჯარა dataset-ის შიგნით ითვლება, ანუ\n",
+        "--  ფილტრამდე. თუ ჯამი გლობალური იქნებოდა, მწვერვალის ფილტრი\n",
+        "--  სტრიქონებს მოაჭრიდა, „სულ დღემდე\" კი მთელი არქივის რიცხვად\n",
+        "--  დარჩებოდა — ცხრილი მცდარ ციფრს აჩვენებდა.\n",
+        "--  ასე კი თითო სტრიქონი კითხულობს: „ამ მწვერვალზე ამ წლისთვის\n",
+        "--  სულ ამდენი ასვლა დაგროვდა\".\n",
+        "WITH PeaksWithHiredStaff AS (\n",
+        "    SELECT Mb.PeakId\n",
+        "    FROM getdata.calculated.CalcMembers AS Mb\n",
+        "    WHERE Mb.IsHiredStaff\n",
+        "    GROUP BY Mb.PeakId\n",
+        "    HAVING COUNT(*) >= 100\n",
+        "),\n",
+        "YearPeak AS (\n",
+        "    SELECT\n",
+        "        Mb.PeakName,\n",
+        "        Mb.ExpeditionYear,\n",
+        "        Mb.Decade,\n",
+        "        SUM(CAST(Mb.ReachedSummit AS INT)) AS SummitsInYear\n",
+        "    FROM getdata.calculated.CalcMembers AS Mb\n",
+        "    INNER JOIN PeaksWithHiredStaff AS Ep\n",
+        "        ON Mb.PeakId = Ep.PeakId\n",
+        "    GROUP BY Mb.PeakName, Mb.ExpeditionYear, Mb.Decade\n",
+        ")\n",
+        "SELECT\n",
+        "    Yp.PeakName,\n",
+        "    Yp.ExpeditionYear,\n",
+        "    Yp.Decade,\n",
+        "    Yp.SummitsInYear,\n",
+        "    SUM(Yp.SummitsInYear) OVER (\n",
+        "        PARTITION BY Yp.PeakName\n",
+        "        ORDER BY Yp.ExpeditionYear\n",
+        "        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n",
+        "    ) AS RunningTotal\n",
+        "FROM YearPeak AS Yp"
+      ]
+    },
+    {
+      "name": "ds_deaths_running",
+      "displayName": "დაღუპულები — წლიური და დაგროვებითი",
+      "queryLines": [
+        "--  იგივე ლოგიკა, რაც ds_summits_running-ში: ჯამი მწვერვალზეა\n",
+        "--  დაყოფილი, რომ ფილტრის შემდეგაც სწორი დარჩეს.\n",
+        "WITH PeaksWithHiredStaff AS (\n",
+        "    SELECT Mb.PeakId\n",
+        "    FROM getdata.calculated.CalcMembers AS Mb\n",
+        "    WHERE Mb.IsHiredStaff\n",
+        "    GROUP BY Mb.PeakId\n",
+        "    HAVING COUNT(*) >= 100\n",
+        "),\n",
+        "YearPeak AS (\n",
+        "    SELECT\n",
+        "        Mb.PeakName,\n",
+        "        Mb.ExpeditionYear,\n",
+        "        Mb.Decade,\n",
+        "        COUNT(*) AS DeathsInYear\n",
+        "    FROM getdata.calculated.CalcMembers AS Mb\n",
+        "    INNER JOIN PeaksWithHiredStaff AS Ep\n",
+        "        ON Mb.PeakId = Ep.PeakId\n",
+        "    WHERE Mb.Died\n",
+        "    GROUP BY Mb.PeakName, Mb.ExpeditionYear, Mb.Decade\n",
+        ")\n",
+        "SELECT\n",
+        "    Yp.PeakName,\n",
+        "    Yp.ExpeditionYear,\n",
+        "    Yp.Decade,\n",
+        "    Yp.DeathsInYear,\n",
+        "    SUM(Yp.DeathsInYear) OVER (\n",
+        "        PARTITION BY Yp.PeakName\n",
+        "        ORDER BY Yp.ExpeditionYear\n",
+        "        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n",
+        "    ) AS RunningTotal\n",
+        "FROM YearPeak AS Yp"
+      ]
+    },
+    {
+      "name": "ds_risk_convergence",
+      "displayName": "რისკის კონვერგენცია (მდგრადი ათწლეულები)",
+      "queryLines": [
+        "--  ბაგის გასწორება 1 — ღერძის მასშტაბი.\n",
+        "--  1900-იან წლებში სულ ოთხი დაქირავებულია და ოთხივე დაიღუპა: 100%.\n",
+        "--  ამ ერთმა წერტილმა ღერძი 0-100-ზე გაწელა და 1950 წლის შემდეგი\n",
+        "--  ისტორია (0.5%-17%) ნულთან მიეწება. ამიტომ დგას მინიმალური\n",
+        "--  შერჩევის ზღვარი: ათწლეული x როლი მინიმუმ 100 ჩანაწერით.\n",
+        "--\n",
+        "--  ბაგის გასწორება 2 — გამოთვლის ადგილი.\n",
+        "--  DeathPct აქ ითვლება, არა ჩარტში: ვიჯეტს მხოლოდ AVG(`DeathPct`)\n",
+        "--  რჩება. ჩარტში ჩაწერილი ROUND(100.0 * SUM(..) / NULLIF(..)) საერთოდ\n",
+        "--  არ სრულდებოდა და სვეტები ცარიელი გამოდიოდა.\n",
+        "--\n",
+        "--  შედეგი: 1970-იანები — დაქირავებული 17.0%, კლიენტი 2.9%\n",
+        "--          2010-იანები — დაქირავებული 0.85%, კლიენტი 0.83%\n",
+        "WITH MajorPeaks AS (\n",
+        "    SELECT Mb.PeakId\n",
+        "    FROM getdata.calculated.CalcMembers AS Mb\n",
+        "    GROUP BY Mb.PeakId\n",
+        "    HAVING COUNT(*) >= 100\n",
+        "),\n",
+        "DecadeRoleVolume AS (\n",
+        "    SELECT\n",
+        "        Mb.Decade,\n",
+        "        Mb.StaffType\n",
+        "    FROM getdata.calculated.CalcMembers AS Mb\n",
+        "    GROUP BY Mb.Decade, Mb.StaffType\n",
+        "    HAVING COUNT(*) >= 100\n",
+        ")\n",
+        "SELECT\n",
+        "    Mb.Decade,\n",
+        "    Mb.StaffType,\n",
+        "    Mb.PeakName,\n",
+        "    CAST(Mb.Died AS INT) * 100 AS DeathPct\n",
+        "FROM getdata.calculated.CalcMembers AS Mb\n",
+        "INNER JOIN MajorPeaks AS Mp\n",
+        "    ON Mb.PeakId = Mp.PeakId\n",
+        "INNER JOIN DecadeRoleVolume AS Dv\n",
+        "    ON Mb.Decade = Dv.Decade\n",
+        "   AND Mb.StaffType = Dv.StaffType"
+      ]
+    },
+    {
+      "name": "ds_conditions",
+      "displayName": "პირობები — სეზონი, ასაკი, როლი",
+      "queryLines": [
+        "--  გვ.2-ის ბაზა. ორი განსხვავება ds_members-ისგან, ორივე იმიტომ, რომ\n",
+        "--  ფილტრის ჩართვისას გვერდი არ დაიშალოს:\n",
+        "--\n",
+        "--  1) მხოლოდ ის მწვერვალები, სადაც 100+ ჩანაწერია. მიკრო-მწვერვალზე\n",
+        "--     ყოველი პროცენტი 0 ან 100 გამოდის და ჩარტი მთლიან ბლოკად იხატება.\n",
+        "--     Annapurna I Middle-ს მთელ ისტორიაში 41 ჩანაწერი აქვს, Lhotse\n",
+        "--     Middle-ს — 15. ეპოქის ფილტრთან ერთად იქ ხუთიოდე კაცი რჩება.\n",
+        "--     ზღვარი 15-დან 10 რეალურ მწვერვალს ტოვებს და ფილტრში სწორედ\n",
+        "--     ისინი ჩანს — დამრღვევი ვარიანტი აღარ ირჩევა.\n",
+        "--\n",
+        "--  2) ასაკი ოთხ ჯგუფად, არა ათად. ათი ვიწრო ზოლიდან ფილტრის შემდეგ\n",
+        "--     ხუთი ცარიელდება და ჩარტი ხვრელებით სავსე რჩება.\n",
+        "WITH MajorPeaks AS (\n",
+        "    SELECT Mb.PeakId\n",
+        "    FROM getdata.calculated.CalcMembers AS Mb\n",
+        "    GROUP BY Mb.PeakId\n",
+        "    HAVING COUNT(*) >= 100\n",
+        ")\n",
+        "SELECT\n",
+        "    Mb.PeakName,\n",
+        "    Mb.Decade,\n",
+        "    Mb.Era,\n",
+        "    Mb.Season,\n",
+        "    Mb.StaffType,\n",
+        "    Mb.Citizenship,\n",
+        "    CASE\n",
+        "        WHEN Mb.AgeAtClimb IS NULL  THEN NULL\n",
+        "        WHEN Mb.AgeAtClimb < 25     THEN '10–24'\n",
+        "        WHEN Mb.AgeAtClimb < 40     THEN '25–39'\n",
+        "        WHEN Mb.AgeAtClimb < 55     THEN '40–54'\n",
+        "        ELSE '55+'\n",
+        "    END AS AgeGroup,\n",
+        "    --  მზა რიცხვითი სვეტები ვიჯეტისთვის. Lakeview-ის ვიჯეტი მხოლოდ\n",
+        "    --  მარტივ აგრეგატს ითვლის (AVG/SUM/COUNT ერთ სვეტზე), ამიტომ\n",
+        "    --  CAST-ი და 100-ზე გამრავლება აქ ხდება, არა ჩარტში.\n",
+        "    CAST(Mb.ReachedSummit AS INT) AS SummitFlag,\n",
+        "    CAST(Mb.Died AS INT) AS DeathFlag,\n",
+        "    CAST(Mb.ReachedSummit AS INT) * 100 AS SuccessPct,\n",
+        "    CAST(Mb.Died AS INT) * 100 AS DeathPct,\n",
+        "    Mb.ReachedSummit,\n",
+        "    Mb.Died\n",
+        "FROM getdata.calculated.CalcMembers AS Mb\n",
+        "INNER JOIN MajorPeaks AS Mp\n",
+        "    ON Mb.PeakId = Mp.PeakId"
+      ]
+    },
+    {
+      "name": "ds_oxygen",
+      "displayName": "ჟანგბადი — მწვერვალზე ასულებში",
+      "queryLines": [
+        "--  ჟანგბადის შედარება მხოლოდ ასულებზე ხდება, და მიზეზით: მთელ\n",
+        "--  პოპულაციაზე შედეგი შებრუნებული გამოვა, რადგან ვინც ბაზიდან არც\n",
+        "--  წამოსულა, ისიც „ჟანგბადის გარეშედ\" ითვლება.\n",
+        "--  მწვერვალების ზღვარი იგივეა, რაც ds_conditions-ში — რომ ერთმა\n",
+        "--  ფილტრმა ორივე ჩარტი თანაბრად მოჭრას.\n",
+        "WITH MajorPeaks AS (\n",
+        "    SELECT Mb.PeakId\n",
+        "    FROM getdata.calculated.CalcMembers AS Mb\n",
+        "    GROUP BY Mb.PeakId\n",
+        "    HAVING COUNT(*) >= 100\n",
+        ")\n",
+        "SELECT\n",
+        "    Mb.PeakName,\n",
+        "    Mb.Decade,\n",
+        "    Mb.Era,\n",
+        "    Mb.OxygenStatus,\n",
+        "    CAST(Mb.Died AS INT) * 100 AS DeathPct,\n",
+        "    Mb.Died\n",
+        "FROM getdata.calculated.CalcMembers AS Mb\n",
+        "INNER JOIN MajorPeaks AS Mp\n",
+        "    ON Mb.PeakId = Mp.PeakId\n",
+        "WHERE Mb.ReachedSummit"
+      ]
+    },
+    {
+      "name": "ds_agency",
+      "displayName": "ოპერატორები და მათი კლიენტები",
+      "queryLines": [
+        "--  გრანულარობა: ერთი კლიენტი ერთ ექსპედიციაში. დაქირავებული\n",
+        "--  პერსონალი გამორიცხულია: ოპერატორი კლიენტის შედეგით ფასდება,\n",
+        "--  დაქირავებულის წარმატების % კი ბევრად მაღალია და საშუალოს წევს.\n",
+        "SELECT\n",
+        "    Mb.PeakId,\n",
+        "    Mb.PeakName,\n",
+        "    Mb.Decade,\n",
+        "    Mb.ExpeditionYear,\n",
+        "    Mb.Agency,\n",
+        "    Ap.ClientVolumeBand,\n",
+        "    Ap.ClientCount,\n",
+        "    Ap.ExpeditionCount,\n",
+        "    Ap.ActiveYears,\n",
+        "    CAST(Mb.ReachedSummit AS INT) * 100 AS SuccessPct,\n",
+        "    Mb.ReachedSummit,\n",
+        "    Mb.Died\n",
+        "FROM getdata.calculated.CalcMembers AS Mb\n",
+        "INNER JOIN getdata.calculated.CalcAgencyPerformance AS Ap\n",
+        "    ON Mb.Agency = Ap.Agency\n",
+        "WHERE NOT Mb.IsHiredStaff\n",
+        "  AND Ap.IsKnownAgency\n",
+        "  --  იგივე ზღვარი, რაც ds_agency_profile-ში. ასე ყოველ კლიენტს\n",
+        "  --  შესაბამისი ოპერატორი ნამდვილად მოეძებნება და many-to-one\n",
+        "  --  კავშირი უნაშთოა — ორივე ჩარტი ერთსა და იმავე სიმრავლეს ჩვენებს.\n",
+        "  AND Ap.ClientCount >= 50"
+      ]
+    },
+    {
+      "name": "ds_agency_profile",
+      "displayName": "ოპერატორების პროფილი (50+ კლიენტი)",
+      "queryLines": [
+        "--  სტრიქონი = ერთი ოპერატორი. ეს გრანულარობა სჭირდება გვ.3-ის\n",
+        "--  წერტილოვან ჩარტს: ds_agency კლიენტის დონეზეა და ჩარტი მას\n",
+        "--  ფერის ველამდე კრებდა, ანუ ოთხ წერტილს ხატავდა ოთხასის ნაცვლად.\n",
+        "--  50 კლიენტის ზღვარი: სამი კლიენტი და ერთი ასვლა უკვე „33%\"-ია.\n",
+        "SELECT\n",
+        "    Ap.Agency,\n",
+        "    Ap.ClientCount,\n",
+        "    Ap.ClientSuccessPct,\n",
+        "    Ap.ClientDeathPct,\n",
+        "    Ap.ActiveYears,\n",
+        "    Ap.ClientVolumeBand\n",
+        "FROM getdata.calculated.CalcAgencyPerformance AS Ap\n",
+        "WHERE Ap.IsKnownAgency\n",
+        "  AND Ap.ClientCount >= 50"
+      ]
+    },
+    {
+      "name": "ds_club",
+      "displayName": "14x8000 კლუბი",
+      "queryLines": [
+        "--  ვინც თოთხმეტივე რვაათასიანზე ავიდა. წყარო: Wikipedia + Wikidata.\n",
+        "--  ქართველი ამ სიაში არ ფიგურირებს — იხ. გვ.5.\n",
+        "SELECT\n",
+        "    Su.SummitOrder,\n",
+        "    Su.ClimberName,\n",
+        "    Su.Nationality,\n",
+        "    Su.AgeAtCompletion,\n",
+        "    Su.CompletionYear,\n",
+        "    Su.YearsToComplete,\n",
+        "    Su.OxygenStatus,\n",
+        "    Su.ClimbingPeriodText,\n",
+        "    Su.PhotoUrl,\n",
+        "    Su.WikiUrl\n",
+        "FROM getdata.calculated.CalcSummiters14 AS Su"
+      ]
+    },
+    {
+      "name": "ds_leaderboard",
+      "displayName": "ტოპ ალპინისტები (15+ ასვლა)",
+      "queryLines": [
+        "SELECT\n",
+        "    Lb.ClimberName,\n",
+        "    Lb.Citizenship,\n",
+        "    Lb.SummitCount,\n",
+        "    Lb.DistinctPeakCount,\n",
+        "    Lb.EverestSummitCount,\n",
+        "    CASE WHEN Lb.IsHiredStaff THEN 'დაქირავებული'\n",
+        "         ELSE 'კლიენტი' END AS StaffType\n",
+        "FROM getdata.calculated.CalcClimberLeaderboard AS Lb\n",
+        "WHERE Lb.SummitCount >= 15"
+      ]
+    },
+    {
+      "name": "ds_georgia",
+      "displayName": "ქართველი ალპინისტები",
+      "queryLines": [
+        "--  ეს dataset განზრახ არ არის მარტივი `Citizenship = 'Georgia'` ფილტრი.\n",
+        "--\n",
+        "--  Himalayan Database მოქალაქეობას ისტორიულად აღრიცხავს, არა\n",
+        "--  დღევანდელი სახელმწიფოებრიობით. წყაროში 'Georgia' პირველად 1993\n",
+        "--  წელს ჩნდება — დამოუკიდებლობის შემდეგ. მანამდე ქართველი ალპინისტი\n",
+        "--  'USSR'-ით წერია. არქივში 271 საბჭოთა ჩანაწერია და მათ შორის ერთი\n",
+        "--  ქართული გვარია: აკაკი (Akai) ხერგიანი, 1982, ევერესტი —\n",
+        "--  ლეგენდარული სვანი მთამსვლელების ოჯახიდან. მწვერვალზე არ ავიდა\n",
+        "--  და არც დაიღუპა.\n",
+        "--\n",
+        "--  გვარის შაბლონი განზრახ ვიწროა (-შვილი / -ძე / -იანი): 271 საბჭოთა\n",
+        "--  ჩანაწერზე შემოწმებისას მან ზუსტად ერთი დამთხვევა დააბრუნა და\n",
+        "--  არცერთი ცრუ დადებითი. უფრო ფართო სიაც (-ავა, -ელი, -ური) იმავე\n",
+        "--  ერთ ადამიანს პოულობს, ამიტომ ვიწრო ვარიანტი დარჩა.\n",
+        "SELECT\n",
+        "    Mb.ClimberName,\n",
+        "    Mb.PeakName,\n",
+        "    Mb.ExpeditionYear,\n",
+        "    Mb.Decade,\n",
+        "    Mb.Season,\n",
+        "    Mb.Citizenship,\n",
+        "    Mb.AgeAtClimb,\n",
+        "    Mb.OxygenStatus,\n",
+        "    CASE WHEN Mb.ReachedSummit THEN 'მწვერვალზე ავიდა'\n",
+        "         ELSE 'ვერ ავიდა' END AS SummitStatus,\n",
+        "    CASE WHEN Mb.Citizenship = 'Georgia' THEN 'საქართველოს პასპორტით (1993+)'\n",
+        "         ELSE 'სსრკ-ის პასპორტით (1991-მდე)' END AS PassportEra,\n",
+        "    CAST(Mb.ReachedSummit AS INT) AS SummitFlag,\n",
+        "    Mb.ReachedSummit,\n",
+        "    Mb.Died\n",
+        "FROM getdata.calculated.CalcMembers AS Mb\n",
+        "WHERE Mb.Citizenship = 'Georgia'\n",
+        "   OR (\n",
+        "        Mb.Citizenship = 'USSR'\n",
+        "        AND Mb.ClimberName RLIKE '(?i)(shvili|dze|iani)$'\n",
+        "      )"
+      ]
+    },
+    {
+      "name": "ds_dim_peak",
+      "displayName": "განზომილება: მწვერვალი",
+      "queryLines": [
+        "--  გასაღები PeakName-ია, არა PeakId: ფაქტების უმეტესობა (ჯამური\n",
+        "--  ცხრილები, პირობები, ჟანგბადი) სახელს ატარებს, არა კოდს.\n",
+        "--  CalcPeaks-ში სახელი ისევე უნიკალურია, როგორც კოდი.\n",
+        "SELECT\n",
+        "    Dp.PeakName,\n",
+        "    Dp.HeightMetres,\n",
+        "    Dp.HeightBand,\n",
+        "    Dp.MountainRange,\n",
+        "    Dp.Region,\n",
+        "    Dp.FirstAscentYear\n",
+        "FROM getdata.calculated.CalcDimPeak AS Dp"
+      ]
+    },
+    {
+      "name": "ds_dim_decade",
+      "displayName": "განზომილება: ათწლეული",
+      "queryLines": [
+        "SELECT\n",
+        "    Dd.Decade,\n",
+        "    Dd.DecadeLabel,\n",
+        "    Dd.Era\n",
+        "FROM getdata.calculated.CalcDimDecade AS Dd"
+      ]
+    },
+    {
+      "name": "ds_dim_nation",
+      "displayName": "განზომილება: მოქალაქეობა",
+      "queryLines": [
+        "SELECT\n",
+        "    Dn.Nation,\n",
+        "    Dn.ClimberCount,\n",
+        "    Dn.NationSizeBand,\n",
+        "    Dn.IsGeorgia\n",
+        "FROM getdata.calculated.CalcDimNation AS Dn"
+      ]
+    }
+  ],
+  "relationshipGraphs": [
+    {
+      "sources": [
+        {
+          "name": "__",
+          "datasetName": "ds_peak_risk"
+        },
+        {
+          "name": "____",
+          "datasetName": "ds_summits_running"
+        },
+        {
+          "name": "_____1",
+          "datasetName": "ds_deaths_running"
+        },
+        {
+          "name": "___",
+          "datasetName": "ds_risk_convergence"
+        },
+        {
+          "name": "____1",
+          "datasetName": "ds_agency"
+        },
+        {
+          "name": "____2",
+          "datasetName": "ds_oxygen"
+        },
+        {
+          "name": "_____2",
+          "datasetName": "ds_conditions"
+        },
+        {
+          "name": "__50_",
+          "datasetName": "ds_agency_profile"
+        },
+        {
+          "name": "14x8000_",
+          "datasetName": "ds_club"
+        },
+        {
+          "name": "_",
+          "datasetName": "ds_georgia"
+        },
+        {
+          "name": "__15_",
+          "datasetName": "ds_leaderboard"
+        },
+        {
+          "name": "__1",
+          "datasetName": "ds_dim_peak"
+        },
+        {
+          "name": "__2",
+          "datasetName": "ds_dim_decade"
+        },
+        {
+          "name": "__3",
+          "datasetName": "ds_dim_nation"
+        }
+      ],
+      "relationships": [
+        {
+          "name": "____1___50_",
+          "from": "____1",
+          "to": "__50_",
+          "on": "`____1`.`Agency` = `__50_`.`Agency`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "_____1",
+          "from": "__",
+          "to": "__1",
+          "on": "`__`.`PeakName` = `__1`.`PeakName`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "_______1",
+          "from": "____",
+          "to": "__1",
+          "on": "`____`.`PeakName` = `__1`.`PeakName`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "_____1___1",
+          "from": "_____1",
+          "to": "__1",
+          "on": "`_____1`.`PeakName` = `__1`.`PeakName`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "______1",
+          "from": "___",
+          "to": "__1",
+          "on": "`___`.`PeakName` = `__1`.`PeakName`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "_____2___1",
+          "from": "_____2",
+          "to": "__1",
+          "on": "`_____2`.`PeakName` = `__1`.`PeakName`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "____2___1",
+          "from": "____2",
+          "to": "__1",
+          "on": "`____2`.`PeakName` = `__1`.`PeakName`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "____1___1",
+          "from": "____1",
+          "to": "__1",
+          "on": "`____1`.`PeakName` = `__1`.`PeakName`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "____1",
+          "from": "_",
+          "to": "__1",
+          "on": "`_`.`PeakName` = `__1`.`PeakName`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "_____2",
+          "from": "__",
+          "to": "__2",
+          "on": "`__`.`Decade` = `__2`.`Decade`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "_______2",
+          "from": "____",
+          "to": "__2",
+          "on": "`____`.`Decade` = `__2`.`Decade`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "_____1___2",
+          "from": "_____1",
+          "to": "__2",
+          "on": "`_____1`.`Decade` = `__2`.`Decade`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "______2",
+          "from": "___",
+          "to": "__2",
+          "on": "`___`.`Decade` = `__2`.`Decade`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "_____2___2",
+          "from": "_____2",
+          "to": "__2",
+          "on": "`_____2`.`Decade` = `__2`.`Decade`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "____2___2",
+          "from": "____2",
+          "to": "__2",
+          "on": "`____2`.`Decade` = `__2`.`Decade`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "____1___2",
+          "from": "____1",
+          "to": "__2",
+          "on": "`____1`.`Decade` = `__2`.`Decade`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "____2",
+          "from": "_",
+          "to": "__2",
+          "on": "`_`.`Decade` = `__2`.`Decade`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "_____2___3",
+          "from": "_____2",
+          "to": "__3",
+          "on": "`_____2`.`Citizenship` = `__3`.`Nation`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "____3",
+          "from": "_",
+          "to": "__3",
+          "on": "`_`.`Citizenship` = `__3`.`Nation`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        },
+        {
+          "name": "__15____3",
+          "from": "__15_",
+          "to": "__3",
+          "on": "`__15_`.`Citizenship` = `__3`.`Nation`",
+          "cardinality": "CARDINALITY_MANY_TO_ONE"
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "page1",
+      "displayName": "1. მწვერვალებზე ასვლის რისკის ანალიზი",
+      "layout": [
+        {
+          "widget": {
+            "name": "p1f1",
+            "queries": [
+              {
+                "name": "p1f1_q_ds_peak_risk",
+                "query": {
+                  "datasetName": "ds_peak_risk",
+                  "fields": [
+                    {
+                      "name": "Era",
+                      "expression": "`Era`"
+                    },
+                    {
+                      "name": "Era_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Era",
+                    "displayName": "Era",
+                    "queryName": "p1f1_q_ds_peak_risk"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ეპოქა"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p1f2",
+            "queries": [
+              {
+                "name": "p1f2_q_ds_peak_risk",
+                "query": {
+                  "datasetName": "ds_peak_risk",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "PeakName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "p1f2_q_ds_summits_running",
+                "query": {
+                  "datasetName": "ds_summits_running",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "PeakName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "p1f2_q_ds_deaths_running",
+                "query": {
+                  "datasetName": "ds_deaths_running",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "PeakName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "PeakName",
+                    "displayName": "PeakName",
+                    "queryName": "p1f2_q_ds_peak_risk"
+                  },
+                  {
+                    "fieldName": "PeakName",
+                    "displayName": "PeakName",
+                    "queryName": "p1f2_q_ds_summits_running"
+                  },
+                  {
+                    "fieldName": "PeakName",
+                    "displayName": "PeakName",
+                    "queryName": "p1f2_q_ds_deaths_running"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "მწვერვალი"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p1c1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_peak_risk",
+                  "fields": [
+                    {
+                      "name": "attempt_count",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "attempt_count",
+                  "displayName": "ადამიან-ექსპედიცია"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "მცდელობა"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p1c2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_peak_risk",
+                  "fields": [
+                    {
+                      "name": "sum(SummitFlag)",
+                      "expression": "SUM(`SummitFlag`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "მწვერვალზე ასული",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(SummitFlag)",
+                  "displayName": "ასვლა"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p1c3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_peak_risk",
+                  "fields": [
+                    {
+                      "name": "death_count",
+                      "expression": "SUM(`DeathFlag`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "death_count",
+                  "displayName": "ადამიანი"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "დაღუპული"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p1v1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_peak_risk",
+                  "fields": [
+                    {
+                      "name": "peak_name",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "death_pct",
+                      "expression": "AVG(`DeathPct`)"
+                    },
+                    {
+                      "name": "staff_type",
+                      "expression": "`StaffType`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "peak_name",
+                  "displayName": "მწვერვალი",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "მწვერვალი"
+                  }
+                },
+                "y": {
+                  "fieldName": "death_pct",
+                  "displayName": "სიკვდილიანობა %",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "სიკვდილიანობა %"
+                  }
+                },
+                "color": {
+                  "fieldName": "staff_type",
+                  "displayName": "როლი",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  }
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#2E7FB8",
+                  "#E0873C"
+                ],
+                "layout": "group"
+              },
+              "label": {
+                "show": true
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "სად უფრო იღუპებიან — კლიენტი და დაქირავებული"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p1t1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_summits_running",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "ExpeditionYear",
+                      "expression": "TRY_CAST(`ExpeditionYear` AS STRING)"
+                    },
+                    {
+                      "name": "SummitsInYear",
+                      "expression": "TRY_CAST(`SummitsInYear` AS STRING)"
+                    },
+                    {
+                      "name": "RunningTotal",
+                      "expression": "TRY_CAST(`RunningTotal` AS STRING)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "ასვლები — წელი და ჯამურად",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "rowsPerPage": 25,
+              "displayRowNumbers": false,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "PeakName",
+                    "useForSearch": false,
+                    "displayName": "მწვერვალი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "ExpeditionYear",
+                    "useForSearch": false,
+                    "displayName": "წელი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "SummitsInYear",
+                    "useForSearch": false,
+                    "displayName": "ამ წელს",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "RunningTotal",
+                    "useForSearch": false,
+                    "displayName": "სულ დღემდე",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 1,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "p1t2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_deaths_running",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "ExpeditionYear",
+                      "expression": "TRY_CAST(`ExpeditionYear` AS STRING)"
+                    },
+                    {
+                      "name": "DeathsInYear",
+                      "expression": "TRY_CAST(`DeathsInYear` AS STRING)"
+                    },
+                    {
+                      "name": "RunningTotal",
+                      "expression": "TRY_CAST(`RunningTotal` AS STRING)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "დაღუპულები — წელი და ჯამურად",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "rowsPerPage": 25,
+              "displayRowNumbers": false,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "PeakName",
+                    "useForSearch": false,
+                    "displayName": "მწვერვალი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "ExpeditionYear",
+                    "useForSearch": false,
+                    "displayName": "წელი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "DeathsInYear",
+                    "useForSearch": false,
+                    "displayName": "ამ წელს",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "RunningTotal",
+                    "useForSearch": false,
+                    "displayName": "სულ დღემდე",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 5,
+            "width": 4,
+            "height": 4
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "page2",
+      "displayName": "2. მწვერვალზე ასვლის შანსის ანალიზი",
+      "layout": [
+        {
+          "widget": {
+            "name": "p2f1",
+            "queries": [
+              {
+                "name": "p2f1_q_ds_conditions",
+                "query": {
+                  "datasetName": "ds_conditions",
+                  "fields": [
+                    {
+                      "name": "Era",
+                      "expression": "`Era`"
+                    },
+                    {
+                      "name": "Era_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "p2f1_q_ds_oxygen",
+                "query": {
+                  "datasetName": "ds_oxygen",
+                  "fields": [
+                    {
+                      "name": "Era",
+                      "expression": "`Era`"
+                    },
+                    {
+                      "name": "Era_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Era",
+                    "displayName": "Era",
+                    "queryName": "p2f1_q_ds_conditions"
+                  },
+                  {
+                    "fieldName": "Era",
+                    "displayName": "Era",
+                    "queryName": "p2f1_q_ds_oxygen"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ეპოქა"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p2f2",
+            "queries": [
+              {
+                "name": "p2f2_q_ds_conditions",
+                "query": {
+                  "datasetName": "ds_conditions",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "PeakName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "p2f2_q_ds_oxygen",
+                "query": {
+                  "datasetName": "ds_oxygen",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "PeakName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "p2f2_q_ds_risk_convergence",
+                "query": {
+                  "datasetName": "ds_risk_convergence",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "PeakName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "PeakName",
+                    "displayName": "PeakName",
+                    "queryName": "p2f2_q_ds_conditions"
+                  },
+                  {
+                    "fieldName": "PeakName",
+                    "displayName": "PeakName",
+                    "queryName": "p2f2_q_ds_oxygen"
+                  },
+                  {
+                    "fieldName": "PeakName",
+                    "displayName": "PeakName",
+                    "queryName": "p2f2_q_ds_risk_convergence"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "მწვერვალი"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p2c1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_conditions",
+                  "fields": [
+                    {
+                      "name": "attempt_count",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "attempt_count",
+                  "displayName": "ადამიან-ექსპედიცია"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "მცდელობა"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p2c2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_conditions",
+                  "fields": [
+                    {
+                      "name": "success_pct",
+                      "expression": "AVG(`SuccessPct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "success_pct",
+                  "displayName": "%"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "წარმატება"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p2v1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_risk_convergence",
+                  "fields": [
+                    {
+                      "name": "decade",
+                      "expression": "`Decade`"
+                    },
+                    {
+                      "name": "death_pct",
+                      "expression": "AVG(`DeathPct`)"
+                    },
+                    {
+                      "name": "staff_type",
+                      "expression": "`StaffType`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "decade",
+                  "displayName": "ათწლეული",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "ათწლეული"
+                  }
+                },
+                "y": {
+                  "fieldName": "death_pct",
+                  "displayName": "სიკვდილიანობა %",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "სიკვდილიანობა %"
+                  }
+                },
+                "color": {
+                  "fieldName": "staff_type",
+                  "displayName": "როლი",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  }
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#2E7FB8",
+                  "#E0873C"
+                ],
+                "layout": "group"
+              },
+              "label": {
+                "show": false
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "რისკის კონვერგენცია — სიკვდილიანობა % როლის მიხედვით"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 9,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "p2v2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_conditions",
+                  "fields": [
+                    {
+                      "name": "season",
+                      "expression": "`Season`"
+                    },
+                    {
+                      "name": "success_pct",
+                      "expression": "AVG(`SuccessPct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "season",
+                  "displayName": "სეზონი",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "სეზონი"
+                  }
+                },
+                "y": {
+                  "fieldName": "success_pct",
+                  "displayName": "წარმატება %",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "წარმატება %"
+                  }
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#2E7FB8"
+                ]
+              },
+              "label": {
+                "show": true
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "სეზონი"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "p2v3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_conditions",
+                  "fields": [
+                    {
+                      "name": "age_group",
+                      "expression": "`AgeGroup`"
+                    },
+                    {
+                      "name": "success_pct",
+                      "expression": "AVG(`SuccessPct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "age_group",
+                  "displayName": "ასაკი",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "ასაკი"
+                  }
+                },
+                "y": {
+                  "fieldName": "success_pct",
+                  "displayName": "წარმატება %",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "წარმატება %"
+                  }
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#2E7FB8"
+                ]
+              },
+              "label": {
+                "show": true
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ასაკი"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 5,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "p2v4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_oxygen",
+                  "fields": [
+                    {
+                      "name": "oxygen_status",
+                      "expression": "`OxygenStatus`"
+                    },
+                    {
+                      "name": "death_pct",
+                      "expression": "AVG(`DeathPct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "oxygen_status",
+                  "displayName": "ჟანგბადი",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "ჟანგბადი"
+                  }
+                },
+                "y": {
+                  "fieldName": "death_pct",
+                  "displayName": "სიკვდილიანობა %",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "სიკვდილიანობა %"
+                  }
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#B33A2B",
+                  "#6B7683"
+                ]
+              },
+              "label": {
+                "show": true
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ჟანგბადი — მწვერვალზე ასულებში"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 5,
+            "width": 4,
+            "height": 4
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "page3",
+      "displayName": "3.ოპერატორის ანალიზი",
+      "layout": [
+        {
+          "widget": {
+            "name": "p3f1",
+            "queries": [
+              {
+                "name": "p3f1_q_ds_agency",
+                "query": {
+                  "datasetName": "ds_agency",
+                  "fields": [
+                    {
+                      "name": "ClientVolumeBand",
+                      "expression": "`ClientVolumeBand`"
+                    },
+                    {
+                      "name": "ClientVolumeBand_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "p3f1_q_ds_agency_profile",
+                "query": {
+                  "datasetName": "ds_agency_profile",
+                  "fields": [
+                    {
+                      "name": "ClientVolumeBand",
+                      "expression": "`ClientVolumeBand`"
+                    },
+                    {
+                      "name": "ClientVolumeBand_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "ClientVolumeBand",
+                    "displayName": "ClientVolumeBand",
+                    "queryName": "p3f1_q_ds_agency"
+                  },
+                  {
+                    "fieldName": "ClientVolumeBand",
+                    "displayName": "ClientVolumeBand",
+                    "queryName": "p3f1_q_ds_agency_profile"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ოპერატორის ზომა"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p3f2",
+            "queries": [
+              {
+                "name": "p3f2_q_ds_agency",
+                "query": {
+                  "datasetName": "ds_agency",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "PeakName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "PeakName",
+                    "displayName": "PeakName",
+                    "queryName": "p3f2_q_ds_agency"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "მწვერვალი"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p3f3",
+            "queries": [
+              {
+                "name": "p3f3_q_ds_agency",
+                "query": {
+                  "datasetName": "ds_agency",
+                  "fields": [
+                    {
+                      "name": "Decade",
+                      "expression": "`Decade`"
+                    },
+                    {
+                      "name": "Decade_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Decade",
+                    "displayName": "Decade",
+                    "queryName": "p3f3_q_ds_agency"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ათწლეული"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p3c1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_agency",
+                  "fields": [
+                    {
+                      "name": "agency_count",
+                      "expression": "COUNT(DISTINCT `Agency`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "agency_count",
+                  "displayName": "სააგენტო"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ოპერატორი"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p3c2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_agency",
+                  "fields": [
+                    {
+                      "name": "client_count",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "client_count",
+                  "displayName": "ადამიანი"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "კლიენტი"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 1,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p3c3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_agency",
+                  "fields": [
+                    {
+                      "name": "avg(SuccessPct)",
+                      "expression": "AVG(`SuccessPct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "წარმატება",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(SuccessPct)",
+                  "displayName": "%"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 1,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p3v1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_agency",
+                  "fields": [
+                    {
+                      "name": "decade",
+                      "expression": "`Decade`"
+                    },
+                    {
+                      "name": "client_count",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "volume_band",
+                      "expression": "`ClientVolumeBand`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "decade",
+                  "displayName": "ათწლეული",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "ათწლეული"
+                  }
+                },
+                "y": {
+                  "fieldName": "client_count",
+                  "displayName": "კლიენტი",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "კლიენტი"
+                  }
+                },
+                "color": {
+                  "fieldName": "volume_band",
+                  "displayName": "ოპერატორის ზომა",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  }
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#2E7FB8",
+                  "#E0873C"
+                ]
+              },
+              "label": {
+                "show": false
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "დიდი ოპერატორების აღზევება — კლიენტი ათწლეულებში"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p3v2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_agency_profile",
+                  "fields": [
+                    {
+                      "name": "ClientCount",
+                      "expression": "`ClientCount`"
+                    },
+                    {
+                      "name": "ClientSuccessPct",
+                      "expression": "`ClientSuccessPct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "ClientCount",
+                  "displayName": "კლიენტი",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "კლიენტი"
+                  }
+                },
+                "y": {
+                  "fieldName": "ClientSuccessPct",
+                  "displayName": "წარმატება %",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "წარმატება %"
+                  }
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#2E7FB8"
+                ]
+              },
+              "label": {
+                "show": false
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "თითო წერტილი ერთი ოპერატორია — 50+ კლიენტი"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p3t1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_agency_profile",
+                  "fields": [
+                    {
+                      "name": "Agency",
+                      "expression": "`Agency`"
+                    },
+                    {
+                      "name": "ClientCount",
+                      "expression": "TRY_CAST(`ClientCount` AS STRING)"
+                    },
+                    {
+                      "name": "ClientSuccessPct",
+                      "expression": "TRY_CAST(`ClientSuccessPct` AS STRING)"
+                    },
+                    {
+                      "name": "ClientDeathPct",
+                      "expression": "TRY_CAST(`ClientDeathPct` AS STRING)"
+                    },
+                    {
+                      "name": "ActiveYears",
+                      "expression": "TRY_CAST(`ActiveYears` AS STRING)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "ოპერატორები — მოცულობა, გამოცდილება, შედეგი",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "rowsPerPage": 25,
+              "displayRowNumbers": false,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "Agency",
+                    "useForSearch": false,
+                    "displayName": "ოპერატორი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "ClientCount",
+                    "useForSearch": false,
+                    "displayName": "კლიენტი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "ClientSuccessPct",
+                    "useForSearch": false,
+                    "displayName": "წარმატება %",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "ClientDeathPct",
+                    "useForSearch": false,
+                    "displayName": "სიკვდ. %",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "ActiveYears",
+                    "useForSearch": false,
+                    "displayName": "წელი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 4,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "page4",
+      "displayName": "4. 14x8000 კლუბის ანალიზი",
+      "layout": [
+        {
+          "widget": {
+            "name": "p4f1",
+            "queries": [
+              {
+                "name": "p4f1_q_ds_club",
+                "query": {
+                  "datasetName": "ds_club",
+                  "fields": [
+                    {
+                      "name": "ClimberName",
+                      "expression": "`ClimberName`"
+                    },
+                    {
+                      "name": "ClimberName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "ClimberName",
+                    "displayName": "ClimberName",
+                    "queryName": "p4f1_q_ds_club"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "აირჩიე ალპინისტი"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p4f2",
+            "queries": [
+              {
+                "name": "p4f2_q_ds_club",
+                "query": {
+                  "datasetName": "ds_club",
+                  "fields": [
+                    {
+                      "name": "Nationality",
+                      "expression": "`Nationality`"
+                    },
+                    {
+                      "name": "Nationality_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Nationality",
+                    "displayName": "Nationality",
+                    "queryName": "p4f2_q_ds_club"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ეროვნება"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p4c1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_club",
+                  "fields": [
+                    {
+                      "name": "club_count",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "club_count",
+                  "displayName": "ადამიანი"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "კლუბის წევრი"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p4c2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_club",
+                  "fields": [
+                    {
+                      "name": "age_at_completion",
+                      "expression": "AVG(`AgeAtCompletion`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "age_at_completion",
+                  "displayName": "წელი"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ასაკი დასრულებისას"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 1,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p4c3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_club",
+                  "fields": [
+                    {
+                      "name": "completion_year",
+                      "expression": "MAX(`CompletionYear`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "completion_year",
+                  "displayName": "ბოლო"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "დასრულების წელი"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 1,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p4t1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_club",
+                  "fields": [
+                    {
+                      "name": "PhotoUrl",
+                      "expression": "`PhotoUrl`"
+                    },
+                    {
+                      "name": "ClimberName",
+                      "expression": "`ClimberName`"
+                    },
+                    {
+                      "name": "Nationality",
+                      "expression": "`Nationality`"
+                    },
+                    {
+                      "name": "AgeAtCompletion",
+                      "expression": "`AgeAtCompletion`"
+                    },
+                    {
+                      "name": "OxygenStatus",
+                      "expression": "`OxygenStatus`"
+                    },
+                    {
+                      "name": "ClimbingPeriodText",
+                      "expression": "`ClimbingPeriodText`"
+                    },
+                    {
+                      "name": "WikiUrl",
+                      "expression": "`WikiUrl`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "allowHTMLByDefault": false,
+              "condensed": true,
+              "encodings": {
+                "columns": [
+                  {
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "image",
+                    "displayName": "PhotoUrl",
+                    "fieldName": "PhotoUrl",
+                    "highlightLinks": false,
+                    "imageHeight": "92px",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "68px",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100000,
+                    "preserveWhitespace": false,
+                    "title": "ფოტო",
+                    "type": "string",
+                    "useMonospaceFont": false,
+                    "visible": true
+                  },
+                  {
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "ClimberName",
+                    "fieldName": "ClimberName",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100001,
+                    "preserveWhitespace": false,
+                    "title": "ალპინისტი",
+                    "type": "string",
+                    "useMonospaceFont": false,
+                    "visible": true
+                  },
+                  {
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "Nationality",
+                    "fieldName": "Nationality",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100002,
+                    "preserveWhitespace": false,
+                    "title": "ეროვნება",
+                    "type": "string",
+                    "useMonospaceFont": false,
+                    "visible": true
+                  },
+                  {
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "AgeAtCompletion",
+                    "fieldName": "AgeAtCompletion",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100003,
+                    "preserveWhitespace": false,
+                    "title": "ასაკი",
+                    "type": "integer",
+                    "useMonospaceFont": false,
+                    "visible": true,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "OxygenStatus",
+                    "fieldName": "OxygenStatus",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100004,
+                    "preserveWhitespace": false,
+                    "title": "ჟანგბადი",
+                    "type": "string",
+                    "useMonospaceFont": false,
+                    "visible": true
+                  },
+                  {
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "ClimbingPeriodText",
+                    "fieldName": "ClimbingPeriodText",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100005,
+                    "preserveWhitespace": false,
+                    "title": "პერიოდი",
+                    "type": "string",
+                    "useMonospaceFont": false,
+                    "visible": true
+                  },
+                  {
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "link",
+                    "displayName": "WikiUrl",
+                    "fieldName": "WikiUrl",
+                    "highlightLinks": true,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "ვიკი",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100006,
+                    "preserveWhitespace": false,
+                    "title": "წყარო",
+                    "type": "string",
+                    "useMonospaceFont": false,
+                    "visible": true
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "version": 1,
+              "widgetType": "table",
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "აირჩიე ალპინისტი ზემოთ — ბარათი აქ გაიხსნება"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p4t2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_leaderboard",
+                  "fields": [
+                    {
+                      "name": "ClimberName",
+                      "expression": "`ClimberName`"
+                    },
+                    {
+                      "name": "StaffType",
+                      "expression": "`StaffType`"
+                    },
+                    {
+                      "name": "SummitCount",
+                      "expression": "`SummitCount`"
+                    },
+                    {
+                      "name": "EverestSummitCount",
+                      "expression": "`EverestSummitCount`"
+                    },
+                    {
+                      "name": "Citizenship",
+                      "expression": "`Citizenship`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "allowHTMLByDefault": false,
+              "condensed": true,
+              "encodings": {
+                "columns": [
+                  {
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "ClimberName",
+                    "fieldName": "ClimberName",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100000,
+                    "preserveWhitespace": false,
+                    "title": "ალპინისტი",
+                    "type": "string",
+                    "useMonospaceFont": false,
+                    "visible": true
+                  },
+                  {
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "StaffType",
+                    "fieldName": "StaffType",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100001,
+                    "preserveWhitespace": false,
+                    "title": "როლი",
+                    "type": "string",
+                    "useMonospaceFont": false,
+                    "visible": true
+                  },
+                  {
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "SummitCount",
+                    "fieldName": "SummitCount",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100002,
+                    "preserveWhitespace": false,
+                    "title": "ასვლა",
+                    "type": "integer",
+                    "useMonospaceFont": false,
+                    "visible": true,
+                    "numberFormat": "0",
+                    "cellFormat": {
+                      "default": {
+                        "foregroundColor": "#B33A2B"
+                      },
+                      "rules": [
+                        {
+                          "if": {
+                            "column": "SummitCount",
+                            "fn": "<",
+                            "literal": "20"
+                          },
+                          "value": {
+                            "foregroundColor": "#6B7683"
+                          }
+                        },
+                        {
+                          "if": {
+                            "column": "SummitCount",
+                            "fn": "<",
+                            "literal": "30"
+                          },
+                          "value": {
+                            "foregroundColor": "#E0873C"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "EverestSummitCount",
+                    "fieldName": "EverestSummitCount",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100003,
+                    "preserveWhitespace": false,
+                    "title": "ევერესტი",
+                    "type": "integer",
+                    "useMonospaceFont": false,
+                    "visible": true,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "allowSearch": false,
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "displayAs": "string",
+                    "displayName": "Citizenship",
+                    "fieldName": "Citizenship",
+                    "highlightLinks": false,
+                    "imageHeight": "",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "linkOpenInNewTab": true,
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "order": 100004,
+                    "preserveWhitespace": false,
+                    "title": "ქვეყანა",
+                    "type": "string",
+                    "useMonospaceFont": false,
+                    "visible": true
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "version": 1,
+              "widgetType": "table",
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "ვინ ავიდა ყველაზე ხშირად — 15+ ასვლა"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "p4v1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_club",
+                  "fields": [
+                    {
+                      "name": "club_count",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "oxygen_status",
+                      "expression": "`OxygenStatus`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "club_count",
+                  "displayName": "ადამიანი",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "oxygen_status",
+                  "displayName": "ჟანგბადი",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  }
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#2E7FB8",
+                  "#E0873C"
+                ]
+              },
+              "label": {
+                "show": true
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "კლუბი ჟანგბადის მიხედვით"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 4,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "page5",
+      "displayName": "5. ქართველები 8000-ზე ანალიზი",
+      "layout": [
+        {
+          "widget": {
+            "name": "p5f1",
+            "queries": [
+              {
+                "name": "p5f1_q_ds_georgia",
+                "query": {
+                  "datasetName": "ds_georgia",
+                  "fields": [
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "PeakName_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "PeakName",
+                    "displayName": "PeakName",
+                    "queryName": "p5f1_q_ds_georgia"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "მწვერვალი"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p5f2",
+            "queries": [
+              {
+                "name": "p5f2_q_ds_georgia",
+                "query": {
+                  "datasetName": "ds_georgia",
+                  "fields": [
+                    {
+                      "name": "Decade",
+                      "expression": "`Decade`"
+                    },
+                    {
+                      "name": "Decade_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Decade",
+                    "displayName": "Decade",
+                    "queryName": "p5f2_q_ds_georgia"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ათწლეული"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "p5c1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_georgia",
+                  "fields": [
+                    {
+                      "name": "climber_count",
+                      "expression": "COUNT(DISTINCT `ClimberName`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "climber_count",
+                  "displayName": "ადამიანი"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ქართველი ალპინისტი"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p5c2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_georgia",
+                  "fields": [
+                    {
+                      "name": "attempt_count",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "attempt_count",
+                  "displayName": "ჩანაწერი"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "მცდელობა"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p5c3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_georgia",
+                  "fields": [
+                    {
+                      "name": "summit_count",
+                      "expression": "SUM(`SummitFlag`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "summit_count",
+                  "displayName": "ასვლა"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "წარმატებული ასვლა"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "p5v1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_georgia",
+                  "fields": [
+                    {
+                      "name": "SummitStatus",
+                      "expression": "`SummitStatus`"
+                    },
+                    {
+                      "name": "ExpeditionYear",
+                      "expression": "`ExpeditionYear`"
+                    },
+                    {
+                      "name": "AgeAtClimb",
+                      "expression": "`AgeAtClimb`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "ქართული ქრონიკა — ყოველი მცდელობა 1982 წლიდან",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "mark": {
+                "colors": [
+                  "#2E7FB8",
+                  "#E0873C"
+                ]
+              },
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "ExpeditionYear",
+                  "axis": {
+                    "title": "წელი"
+                  },
+                  "displayName": "წელი",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "AgeAtClimb",
+                  "axis": {
+                    "title": "ასაკი ასვლისას"
+                  },
+                  "displayName": "ასაკი ასვლისას",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "SummitStatus",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "შედეგი",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "p5v2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_georgia",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "SummitStatus",
+                      "expression": "`SummitStatus`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "შედეგი",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "mark": {
+                "colors": [
+                  "#2E7FB8",
+                  "#E0873C"
+                ]
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "ჩანაწერი"
+                },
+                "color": {
+                  "fieldName": "SummitStatus",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "შედეგი",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 6,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "p5t1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_georgia",
+                  "fields": [
+                    {
+                      "name": "ClimberName",
+                      "expression": "`ClimberName`"
+                    },
+                    {
+                      "name": "PeakName",
+                      "expression": "`PeakName`"
+                    },
+                    {
+                      "name": "ExpeditionYear",
+                      "expression": "TRY_CAST(`ExpeditionYear` AS STRING)"
+                    },
+                    {
+                      "name": "AgeAtClimb",
+                      "expression": "TRY_CAST(`AgeAtClimb` AS STRING)"
+                    },
+                    {
+                      "name": "SummitStatus",
+                      "expression": "`SummitStatus`"
+                    },
+                    {
+                      "name": "PassportEra",
+                      "expression": "`PassportEra`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "ყველა ქართული ჩანაწერი",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "rowsPerPage": 25,
+              "displayRowNumbers": false,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "ClimberName",
+                    "useForSearch": false,
+                    "displayName": "ალპინისტი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "PeakName",
+                    "useForSearch": false,
+                    "displayName": "მწვერვალი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "ExpeditionYear",
+                    "useForSearch": false,
+                    "displayName": "წელი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "AgeAtClimb",
+                    "useForSearch": false,
+                    "displayName": "ასაკი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "SummitStatus",
+                    "useForSearch": false,
+                    "displayName": "შედეგი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "PassportEra",
+                    "useForSearch": false,
+                    "displayName": "პასპორტი",
+                    "actions": {
+                      "hover": {
+                        "type": "tooltip",
+                        "tooltipTemplate": "{{ @ }}"
+                      }
+                    }
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}
